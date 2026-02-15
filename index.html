@@ -1,0 +1,281 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>时光助手 V32.0 - 尊享定制版</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/vue/3.3.4/vue.global.prod.min.js"></script>
+    <link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet">
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;700;900&display=swap');
+        body { font-family: 'Noto Sans SC', sans-serif; background: #f8fafc; height: 100vh; overflow: hidden; margin: 0; }
+        .no-scrollbar::-webkit-scrollbar { display: none; }
+        /* 响应式布局 */
+        .calendar-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; }
+        .day-cell { min-height: 75px; padding: 6px; border-radius: 16px; border: 1px solid #f1f5f9; background: white; cursor: pointer; transition: 0.2s; }
+        @media (min-width: 768px) { .day-cell { min-height: 100px; } }
+        .day-active { background: #3b82f6 !important; color: white !important; box-shadow: 0 10px 20px -5px rgba(59,130,246,0.4); }
+        /* 全球时钟滚动条 */
+        .clock-container { display: flex; overflow-x: auto; gap: 20px; padding: 10px 0; border-bottom: 1px solid #f1f5f9; background: white; }
+        .clock-card { min-width: 100px; text-align: center; flex-shrink: 0; }
+        .clock-city { font-size: 10px; font-weight: 900; color: #94a3b8; }
+        .clock-time { font-size: 14px; font-weight: 900; color: #1e293b; font-family: 'Courier New', monospace; }
+        /* 头像显示 */
+        .user-avatar { width: 100%; height: 100%; border-radius: inherit; object-fit: cover; display: flex; align-items: center; justify-content: center; }
+        /* 移动端导航 */
+        .nav-bottom { position: fixed; bottom: 0; left: 0; right: 0; height: 75px; background: white; display: flex; justify-content: space-around; align-items: center; border-top: 1px solid #f1f5f9; z-index: 100; padding-bottom: env(safe-area-inset-bottom); }
+    </style>
+</head>
+<body>
+    <div id="app" class="h-screen flex flex-col md:flex-row overflow-hidden">
+        <div v-if="!isLoggedIn" class="fixed inset-0 bg-white z-[999] flex items-center justify-center p-6">
+            <div class="w-full max-w-sm">
+                <div class="text-center mb-10">
+                    <div class="w-20 h-20 bg-blue-600 rounded-[2rem] mx-auto flex items-center justify-center text-white mb-4 shadow-xl">
+                        <span class="material-icons text-4xl">travel_explore</span>
+                    </div>
+                    <h2 class="text-2xl font-black text-slate-800">时光助手</h2>
+                    <p class="text-slate-400 font-bold text-xs mt-2 uppercase tracking-widest">Global Time & Life Plan</p>
+                </div>
+                <div class="space-y-4">
+                    <input v-model="auth.user" placeholder="账号 ID" class="w-full bg-slate-50 border-none rounded-2xl px-6 py-4 font-bold outline-none">
+                    <input v-model="auth.pass" type="password" placeholder="密码" class="w-full bg-slate-50 border-none rounded-2xl px-6 py-4 font-bold outline-none">
+                    <button @click="handleLogin" class="w-full bg-blue-600 text-white py-4 rounded-2xl font-black shadow-lg">进入系统</button>
+                </div>
+            </div>
+        </div>
+        <aside class="hidden md:flex w-72 bg-white border-r border-slate-100 flex-col p-6">
+            <div class="flex items-center gap-4 mb-10 bg-slate-50 p-4 rounded-3xl">
+                <div :style="{backgroundColor: user.color}" class="w-12 h-12 rounded-2xl overflow-hidden shadow-md">
+                    <img v-if="user.customAvatar" :src="user.customAvatar" class="user-avatar">
+                    <span v-else class="material-icons text-white user-avatar">{{ user.icon }}</span>
+                </div>
+                <div>
+                    <p class="font-black text-slate-800">{{ user.name }}</p>
+                    <p class="text-[10px] text-slate-400 font-bold tracking-tighter">ID: {{ user.id }}</p>
+                </div>
+            </div>
+            <nav class="flex-1 space-y-2">
+                <button v-for="(v, k) in tabs" :key="k" @click="tab = k" 
+                    :class="tab === k ? 'bg-blue-600 text-white shadow-lg shadow-blue-100' : 'text-slate-400 hover:bg-slate-50'"
+                    class="w-full flex items-center gap-4 p-4 rounded-2xl transition-all font-bold">
+                    <span class="material-icons">{{ v.icon }}</span>
+                    <span>{{ v.name }}</span>
+                </button>
+            </nav>
+            <button @click="logout" class="p-4 text-slate-300 hover:text-rose-500 font-bold flex items-center gap-2 transition">
+                <span class="material-icons text-sm">power_settings_new</span> 退出
+            </button>
+        </aside>
+        <main class="flex-1 flex flex-col overflow-hidden relative pb-[75px] md:pb-0">
+            <div class="clock-container no-scrollbar px-4">
+                <div v-for="c in worldClocks" :key="c.city" class="clock-card">
+                    <div class="clock-city">{{ c.city }}</div>
+                    <div class="clock-time">{{ c.time }}</div>
+                </div>
+            </div>
+            <header class="bg-white p-4 border-b border-slate-50 flex justify-between items-center">
+                <div class="flex items-center gap-2">
+                    <span class="material-icons text-blue-600">today</span>
+                    <span class="font-black text-slate-800">{{ selectedDate }}</span>
+                    <span class="text-[10px] bg-blue-50 text-blue-500 px-2 py-0.5 rounded-full font-black">{{ todayLunar }}</span>
+                </div>
+                <div class="flex items-center gap-2 bg-slate-100 px-3 py-1 rounded-xl">
+                    <span class="material-icons text-slate-400 text-sm">event_repeat</span>
+                    <input type="date" v-model="jumpDate" @change="handleJump" class="bg-transparent border-none outline-none text-xs font-black p-2 text-blue-600">
+                </div>
+            </header>
+            <div class="flex-1 overflow-y-auto no-scrollbar p-4 md:p-8">
+                <div v-if="tab === 'home'" class="max-w-5xl mx-auto space-y-6">
+                    <div class="flex justify-between items-center bg-white p-4 rounded-3xl shadow-sm border border-slate-50">
+                        <button @click="moveMonth(-1)" class="material-icons text-slate-300">chevron_left</button>
+                        <h2 class="text-xl font-black text-slate-800">{{ viewDate.getFullYear() }}年 {{ viewDate.getMonth()+1 }}月</h2>
+                        <button @click="moveMonth(1)" class="material-icons text-slate-300">chevron_right</button>
+                    </div>
+                    <div class="calendar-grid">
+                        <div v-for="d in ['日','一','二','三','四','五','六']" class="text-center text-[10px] font-black text-slate-300 py-2">{{d}}</div>
+                        <div v-for="empty in offset" class="h-4"></div>
+                        <div v-for="d in days" @click="pickDate(d)" :class="['day-cell', isSame(d) ? 'day-active' : '']">
+                            <div class="flex justify-between">
+                                <span class="text-base font-black">{{ d }}</span>
+                                <span v-if="getDayInfo(d).fest" class="text-[8px] font-black bg-rose-500 text-white px-1 rounded">{{ getDayInfo(d).fest }}</span>
+                            </div>
+                            <div class="text-[9px] opacity-50">{{ getDayInfo(d).lunar }}</div>
+                            <div class="mt-2 flex gap-1">
+                                <div v-if="hasTask(d)" class="w-1.5 h-1.5 rounded-full bg-blue-400"></div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="bg-white rounded-[2.5rem] p-8 shadow-sm">
+                        <h3 class="font-black text-slate-800 mb-6 flex items-center gap-2">
+                            <span class="material-icons text-blue-600">edit_note</span> 计划记事
+                        </h3>
+                        <div class="flex gap-2 mb-6">
+                            <input v-model="newTask" @keyup.enter="doAddTask" placeholder="在这天写下你需要做的事情..." class="flex-1 bg-slate-50 rounded-2xl px-5 py-4 text-sm font-bold outline-none border-2 border-transparent focus:border-blue-100 transition-all">
+                            <button @click="doAddTask" class="bg-blue-600 text-white px-6 rounded-2xl material-icons">add</button>
+                        </div>
+                        <div class="space-y-3">
+                            <div v-for="(t, i) in dayTasks" :key="i" class="flex justify-between items-center p-5 bg-slate-50 rounded-3xl group">
+                                <span class="text-sm font-bold text-slate-700">{{ t }}</span>
+                                <button @click="delTask(selectedDate, i)" class="material-icons text-slate-200 group-hover:text-rose-400 transition text-sm">delete</button>
+                            </div>
+                            <div v-if="dayTasks.length === 0" class="text-center py-10 opacity-20 italic text-sm font-bold">这一天暂无安排</div>
+                        </div>
+                    </div>
+                </div>
+                <div v-if="tab === 'all'" class="max-w-5xl mx-auto">
+                    <div class="flex items-center gap-4 mb-8">
+                        <h2 class="text-2xl font-black text-slate-800">计划汇总汇总</h2>
+                        <span class="bg-blue-600 text-white text-[10px] px-3 py-1 rounded-full font-black uppercase">Summary</span>
+                    </div>
+                    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                        <div v-for="date in sortedDates" :key="date" class="bg-white p-6 rounded-[2rem] shadow-sm border border-slate-50">
+                             <div class="flex justify-between items-center mb-4 pb-2 border-b border-slate-50">
+                                <h4 class="text-xs font-black text-blue-600">{{ date }}</h4>
+                                <span class="text-[9px] font-black text-rose-300">{{ getFest(date) }}</span>
+                             </div>
+                             <div v-for="t in tasks[date]" class="flex items-center gap-3 text-xs py-2 font-bold text-slate-500">
+                                <div class="w-1.5 h-1.5 rounded-full bg-slate-200"></div>
+                                {{ t }}
+                             </div>
+                        </div>
+                    </div>
+                </div>
+                <div v-if="tab === 'chat'" class="h-full max-w-2xl mx-auto flex flex-col bg-white rounded-[2.5rem] shadow-sm overflow-hidden border border-slate-50">
+                    <div class="p-6 border-b flex justify-between items-center bg-slate-50/50">
+                        <span class="font-black text-slate-800">时光信箱</span>
+                        <span class="material-icons text-blue-600">forum</span>
+                    </div>
+                    <div class="flex-1 p-6 flex flex-col justify-center items-center opacity-20">
+                        <span class="material-icons text-7xl">chat_bubble_outline</span>
+                        <p class="font-black mt-4">在这里与朋友点对点沟通</p>
+                        <p class="text-[10px] mt-2 font-bold uppercase tracking-widest">Feature coming soon in V33</p>
+                    </div>
+                </div>
+                <div v-if="tab === 'me'" class="max-w-md mx-auto space-y-6">
+                    <div class="bg-white p-10 rounded-[3rem] shadow-sm text-center">
+                        <div class="relative w-28 h-28 mx-auto mb-6">
+                            <div :style="{backgroundColor: user.color}" class="w-full h-full rounded-[2.5rem] flex items-center justify-center text-white text-5xl shadow-xl overflow-hidden">
+                                <img v-if="user.customAvatar" :src="user.customAvatar" class="user-avatar">
+                                <span v-else class="material-icons user-avatar">{{ user.icon }}</span>
+                            </div>
+                            <label class="absolute -bottom-2 -right-2 bg-blue-600 text-white w-10 h-10 rounded-2xl flex items-center justify-center cursor-pointer shadow-lg border-4 border-white">
+                                <span class="material-icons text-sm">photo_camera</span>
+                                <input type="file" @change="uploadAvatar" class="hidden" accept="image/*">
+                            </label>
+                        </div>
+                        <input v-model="user.name" @change="save" class="text-center w-full font-black text-2xl outline-none text-slate-800">
+                        <p class="text-xs font-black text-slate-300 mt-2">点击名字或相机修改资料</p>
+                    </div>
+                    <div class="bg-white p-8 rounded-[3rem] shadow-sm">
+                        <p class="text-[10px] font-black text-slate-300 uppercase mb-4 ml-2">选择预设图标</p>
+                        <div class="grid grid-cols-5 gap-3">
+                            <div v-for="i in icons" @click="user.icon=i; user.customAvatar=null; save()" 
+                                :class="user.icon===i && !user.customAvatar ? 'bg-blue-600 text-white shadow-lg' : 'bg-slate-50 text-slate-400'"
+                                class="w-12 h-12 rounded-2xl flex items-center justify-center material-icons text-xl cursor-pointer transition-all">{{i}}</div>
+                        </div>
+                        <button @click="logout" class="w-full mt-10 py-5 bg-rose-50 text-rose-500 rounded-3xl font-black text-sm transition hover:bg-rose-100">退出当前时光</button>
+                    </div>
+                </div>
+            </div>
+        </main>
+        <nav class="md:hidden nav-bottom">
+            <button v-for="(v, k) in tabs" :key="k" @click="tab = k" 
+                :class="tab === k ? 'text-blue-600' : 'text-slate-300'" class="flex flex-col items-center">
+                <span class="material-icons">{{ v.icon }}</span>
+                <span class="text-[9px] font-black mt-1">{{ v.name }}</span>
+            </button>
+        </nav>
+    </div>
+    <script>
+        const { createApp, ref, computed, onMounted } = Vue;
+        createApp({
+            setup() {
+                const isLoggedIn = ref(false);
+                const hasAcc = ref(!!localStorage.getItem('v32_user'));
+                const auth = ref({ user: '', pass: '' });
+                // 用户数据
+                const user = ref(JSON.parse(localStorage.getItem('v32_user') || '{"id":"U'+Date.now()+'","name":"时光旅人","icon":"face","color":"#3b82f6","customAvatar":null}'));
+                const tasks = ref(JSON.parse(localStorage.getItem('v32_tasks') || '{}'));
+                // 全球时钟数据 (你提供的数据排序)
+                const worldClocks = ref([
+                    { city: '北京', tz: 'Asia/Shanghai', time: '' },
+                    { city: '东京', tz: 'Asia/Tokyo', time: '' },
+                    { city: '伦敦', tz: 'Europe/London', time: '' },
+                    { city: '纽约', tz: 'America/New_York', time: '' },
+                    { city: '巴黎', tz: 'Europe/Paris', time: '' },
+                    { city: '洛杉矶', tz: 'America/Los_Angeles', time: '' },
+                    { city: '悉尼', tz: 'Australia/Sydney', time: '' },
+                    { city: '柏林', tz: 'Europe/Berlin', time: '' },
+                    { city: '莫斯科', tz: 'Europe/Moscow', time: '' },
+                    { city: '迪拜', tz: 'Asia/Dubai', time: '' }
+                ]);
+                const updateTime = () => {
+                    worldClocks.value.forEach(c => {
+                        c.time = new Intl.DateTimeFormat('en-GB', { timeZone: c.tz, hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false }).format(new Date());
+                    });
+                };
+                setInterval(updateTime, 1000);
+                const tab = ref('home');
+                const viewDate = ref(new Date());
+                const selectedDate = ref(new Date().toISOString().split('T')[0]);
+                const jumpDate = ref(selectedDate.value);
+                const newTask = ref('');
+                const icons = ['face', 'pets', 'rocket_launch', 'celebration', 'anchor', 'hiking', 'icecream', 'sports_esports', 'auto_awesome', 'spa'];
+                const tabs = { home:{name:'生活',icon:'calendar_today'}, all:{name:'计划汇总',icon:'analytics'}, chat:{name:'沟通',icon:'chat_bubble'}, me:{name:'我的',icon:'person'} };
+                const holidays = { "2026-02-16": "除夕", "2026-02-17": "春节", "01-01": "元旦", "10-01": "国庆" };
+                // 日历逻辑
+                const days = computed(() => new Date(viewDate.value.getFullYear(), viewDate.value.getMonth() + 1, 0).getDate());
+                const offset = computed(() => new Date(viewDate.value.getFullYear(), viewDate.value.getMonth(), 1).getDay());
+                const dayTasks = computed(() => tasks.value[selectedDate.value] || []);
+                const sortedDates = computed(() => Object.keys(tasks.value).sort().reverse());
+                const todayLunar = computed(() => getDayInfo(new Date().getDate()).lunar);
+                const handleLogin = () => {
+                    if(!auth.value.user) return;
+                    if(!hasAcc.value) {
+                        user.value.id = auth.value.user;
+                        localStorage.setItem('v32_user', JSON.stringify(user.value));
+                        localStorage.setItem('v32_pass', btoa(auth.value.pass));
+                    }
+                    isLoggedIn.value = true;
+                };
+                const uploadAvatar = (e) => {
+                    const file = e.target.files[0];
+                    if (file) {
+                        const reader = new FileReader();
+                        reader.onload = (f) => { user.value.customAvatar = f.target.result; save(); };
+                        reader.readAsDataURL(file);
+                    }
+                };
+                const pickDate = (d) => { selectedDate.value = getDateStr(d); };
+                const moveMonth = (n) => viewDate.value = new Date(viewDate.value.getFullYear(), viewDate.value.getMonth() + n, 1);
+                const handleJump = () => { if(jumpDate.value) { selectedDate.value = jumpDate.value; viewDate.value = new Date(jumpDate.value); }};
+                const getDateStr = (d) => new Date(viewDate.value.getFullYear(), viewDate.value.getMonth(), d).toLocaleDateString('en-CA');
+                const isSame = (d) => getDateStr(d) === selectedDate.value;
+                const hasTask = (d) => !!tasks.value[getDateStr(d)];
+                const doAddTask = () => {
+                    if(!newTask.value.trim()) return;
+                    if(!tasks.value[selectedDate.value]) tasks.value[selectedDate.value] = [];
+                    tasks.value[selectedDate.value].unshift(newTask.value);
+                    newTask.value = ''; save();
+                };
+                const delTask = (d, i) => { tasks.value[d].splice(i, 1); if(!tasks.value[d].length) delete tasks.value[d]; save(); };
+                const getDayInfo = (d) => {
+                    const date = new Date(viewDate.value.getFullYear(), viewDate.value.getMonth(), d);
+                    const base = new Date(2026, 1, 17);
+                    const diff = Math.floor((date - base) / 86400000);
+                    const lDays = ["初一","初二","初三","初四","初五","初六","初七","初八","初九","初十","十一","十二","十三","十四","十五","十六","十七","十八","十九","二十","廿一","廿二","廿三","廿四","廿五","廿六","廿七","廿八","廿九","三十"];
+                    return { fest: holidays[date.toLocaleDateString('en-CA')] || null, lunar: lDays[(diff % 30 + 30) % 30] };
+                };
+                const getFest = (s) => holidays[s] || '';
+                const save = () => { localStorage.setItem('v32_user', JSON.stringify(user.value)); localStorage.setItem('v32_tasks', JSON.stringify(tasks.value)); };
+                const logout = () => { isLoggedIn.value = false; location.reload(); };
+                onMounted(updateTime);
+                return { isLoggedIn, auth, handleLogin, user, tasks, worldClocks, tab, tabs, viewDate, selectedDate, jumpDate, newTask, days, offset, dayTasks, sortedDates, todayLunar, pickDate, moveMonth, handleJump, isSame, hasTask, doAddTask, delTask, getDayInfo, getFest, save, logout, icons, uploadAvatar };
+            }
+        }).mount('#app');
+    </script>
+</body>
+</html>
+
